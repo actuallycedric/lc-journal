@@ -1,54 +1,33 @@
 # leetcode journal
 
-A black-and-white, monospace journal for logging my own NeetCode 150 solutions. Plain HTML/CSS/JS, no build step, no dependencies. Solutions live in the browser's localStorage; the site sits behind a password checked by Vercel Routing Middleware.
+A black-and-white, monospace journal for logging my own NeetCode 150 solutions. A plain public static site: HTML/CSS/JS, no build step, no dependencies. Solutions live in the browser's localStorage, so nothing I write ever leaves the browser.
 
 ## files
 
 - `index.html` - app shell
-- `login.html` - password page (inline CSS)
 - `style.css` - styles; heatmap colours are `--heat-0` … `--heat-4` at the top
 - `app.js` - all app logic (storage, views, roadmap, heatmap, backup, shortcuts)
 - `problems.js` - the NeetCode 150, in order
-- `middleware.js` - password gate (runs before every request on Vercel)
-- `package.json` - only `"type": "module"`, which Vercel needs to load `middleware.js` without a framework. No dependencies, no scripts.
-
-## environment variables
-
-| name | what |
-|---|---|
-| `JOURNAL_PASSWORD` | the password typed on the login page |
-| `AUTH_SECRET` | a long random string (e.g. `openssl rand -hex 32`); the session cookie is `sha256(JOURNAL_PASSWORD + AUTH_SECRET)` |
-
-Neither value is ever committed. Changing either one logs every browser out.
+- `SPEC.md` - what the app is supposed to do
 
 ## run locally
 
+Any static file server works, from the project root:
+
 ```bash
-npm i -g vercel
-vercel login
-vercel link
-vercel dev
+python3 -m http.server 3000
 ```
 
-`vercel dev` reads `.env.local` (gitignored) from the project root:
-
-```
-JOURNAL_PASSWORD=your-password
-AUTH_SECRET=some-long-random-string
-```
-
-Then open http://localhost:3000.
+Then open http://localhost:3000. (Opening `index.html` straight from disk won't work: browsers block ES modules on `file://`.)
 
 ## deploy
 
 1. Push the repo to GitHub, import it in Vercel (framework preset: **Other**, no build command, output directory: root).
-2. In Vercel project settings → Environment Variables, add `JOURNAL_PASSWORD` and `AUTH_SECRET` for Production (and Preview if wanted).
-3. Redeploy after changing env vars (they don't apply to existing deployments).
-4. Local: `vercel dev` with a gitignored `.env.local` containing the same two vars.
+2. Every push to `main` redeploys.
 
 ## data
 
-Everything is in localStorage under `lcj:v1` (UI prefs under `lcj:ui`, filters in sessionStorage). It doesn't sync between browsers and disappears if site data is cleared, so use **export** in the footer regularly; a banner nags after 7 days. **import** shows a summary and lets you replace everything or merge (newer `updatedAt` wins).
+Everything is in localStorage under `lcj:v1` (UI prefs under `lcj:ui`, filters in sessionStorage). It's per browser and per domain: it doesn't sync between devices, it's separate on localhost and on the deployed URL, and it disappears if site data is cleared. Use **export** in the footer regularly; a banner nags after 7 days. **import** shows a summary and lets you replace everything or merge (newer `updatedAt` wins).
 
 If `lcj:v1` can't be parsed, the raw text is copied to `lcj:corrupt:<timestamp>`, a banner says so, and the journal starts empty.
 
@@ -58,8 +37,6 @@ If `lcj:v1` can't be parsed, the raw text is copied to `lcj:corrupt:<timestamp>`
 
 ## decisions where the spec was open
 
-- **Middleware pass-through.** The middleware returns nothing to let a request continue (as in Vercel's docs), so `@vercel/functions` isn't needed.
-- **Deep links survive login.** `login.html` posts to `/login#/p/<id>` when there's a hash, and the browser carries the hash through the redirect. Wrong passwords wait 400ms before redirecting.
 - **"Entry exists"** (read mode vs edit mode by default) means the entry has content: a status other than todo, a solved date, or any text. Starring alone doesn't count.
 - **Activity is solved problems with a `solvedAt`.** If a problem goes back to attempted, its date is kept (so toggling never loses a hand-edited date) but it stops counting on the heatmap and streak, and the list hides the date.
 - **Due for review** needs a solved date or a review; a solved problem with neither is never due. `mark reviewed` only shows on solved problems.
