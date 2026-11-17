@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<link rel="icon" href="data:,">
+<title>leetcode journal · locked</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: #fff; color: #000; }
+  body {
+    font: 15px/1.6 ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    padding: 16px;
+  }
+  form { width: 100%; max-width: 320px; }
+  h1 { font-size: 15px; font-weight: normal; margin: 0 0 24px; }
+  label { display: block; color: #666; margin-bottom: 4px; }
+  input {
+    width: 100%;
+    font: inherit;
+    color: #000;
+    background: #fff;
+    border: 1px solid #000;
+    border-radius: 0;
+    padding: 6px 8px;
+  }
+  input:focus-visible, button:focus-visible { outline: 2px solid #000; outline-offset: 2px; }
+  button {
+    margin-top: 12px;
+    font: inherit;
+    color: #000;
+    background: #fff;
+    border: 1px solid #000;
+    padding: 4px 12px;
+    cursor: pointer;
+  }
+  button:hover { background: #000; color: #fff; }
+  .error { margin: 12px 0 0; }
+  .error[hidden] { display: none; }
+</style>
+</head>
+<body>
+<form method="post" action="/login">
+  <h1>leetcode journal</h1>
+  <label for="password">password</label>
+  <input id="password" name="password" type="password" autocomplete="current-password" autofocus required>
+  <button type="submit">unlock</button>
+  <p class="error" id="error" role="alert" hidden>wrong password</p>
+</form>
+<script>
+  if (new URLSearchParams(location.search).get('e') === '1') document.getElementById('error').hidden = false
+  // keep a deep link like #/p/lru-cache through the login redirect
+  if (location.hash) document.querySelector('form').action = '/login' + location.hash
+</script>
+</body>
+</html>
