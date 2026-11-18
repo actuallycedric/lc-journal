@@ -417,6 +417,7 @@ function renderList() {
           <button type="button" class="tog" data-filter="starred" aria-label="starred only">★</button>
           <button type="button" class="tog" data-filter="due" id="due-btn">due (0)</button>
           <button type="button" class="tog" data-action="random">random</button>
+          <button type="button" class="tog" data-action="clear-filters" id="clear-btn" hidden>clear filters</button>
         </div>
       </div>
       <p id="list-msg" class="gray" role="status"></p>
@@ -439,6 +440,7 @@ function syncControls(ctx) {
     const on = f === 'status' ? filters.status === v : f === 'diff' ? filters.diff.includes(v) : !!filters[f]
     b.setAttribute('aria-pressed', String(on))
   }
+  $('#clear-btn').hidden = !isFiltering()
   $('#due-btn').textContent = `due (${dueCount(ctx.today)})`
 }
 
@@ -1006,6 +1008,9 @@ document.addEventListener('click', (ev) => {
     }
     case 'random':
       return randomProblem()
+    case 'clear-filters':
+      $('#search').value = ''
+      return setFilter(DEFAULT_FILTERS)
     case 'show-due':
       if ($('#search')) $('#search').value = ''
       return setFilter({ ...DEFAULT_FILTERS, due: true })
