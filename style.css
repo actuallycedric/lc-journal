@@ -1,10 +1,5 @@
-/* black and white, monospace. the only colour is the heatmap scale below. */
+/* black and white, monospace. */
 :root {
-  --heat-0: #eeeeee;
-  --heat-1: #fca5a5;
-  --heat-2: #ef4444;
-  --heat-3: #b91c1c;
-  --heat-4: #7e22ce;
 
   --fg: #000;
   --bg: #fff;
@@ -139,9 +134,7 @@ button {
 .seg button[aria-pressed="true"],
 .tog[aria-pressed="true"] { background: var(--fg); color: var(--bg); }
 
-#chips:empty, #list-msg:empty { display: none; }
-#chips { margin-top: 8px; }
-.chip { border: 1px solid var(--fg); padding: 0 6px; }
+#list-msg:empty { display: none; }
 #list-msg { margin-top: 8px; }
 
 /* ---------- roadmap ---------- */
@@ -160,61 +153,6 @@ button {
   background: var(--bg);
   padding: 0 4px;
 }
-
-.heatmap { position: relative; margin-top: 16px; }
-.heat-scroll { overflow-x: auto; padding: 2px; }
-.heat-grid {
-  display: grid;
-  grid-template-columns: 28px repeat(53, 11px);
-  grid-template-rows: 15px repeat(7, 11px);
-  gap: 3px;
-  width: max-content;
-}
-.hm-month, .hm-day {
-  font-size: 10px;
-  line-height: 11px;
-  color: var(--muted);
-  white-space: nowrap;
-}
-.hm-month { grid-row: 1; align-self: end; }
-.hm-day { grid-column: 1; }
-.cell {
-  width: 11px;
-  height: 11px;
-  border-radius: 2px;
-  background: var(--heat-0);
-}
-.cell[data-level="1"], .sw[data-level="1"] { background: var(--heat-1); }
-.cell[data-level="2"], .sw[data-level="2"] { background: var(--heat-2); }
-.cell[data-level="3"], .sw[data-level="3"] { background: var(--heat-3); }
-.cell[data-level="4"], .sw[data-level="4"] { background: var(--heat-4); }
-.cell[data-level="0"] { cursor: default; }
-.cell[aria-current="date"] { outline: 1px solid var(--fg); outline-offset: 0; }
-.cell:focus-visible { outline: 2px solid var(--fg); outline-offset: 1px; }
-.cell.picked { outline: 2px solid var(--fg); outline-offset: 1px; }
-
-.heat-tip {
-  position: absolute;
-  z-index: 5;
-  max-width: 100%;
-  border: 1px solid var(--fg);
-  background: var(--bg);
-  padding: 0 6px;
-  font-size: 12px;
-  pointer-events: none;
-}
-.heat-tip[hidden] { display: none; }
-
-.heat-foot {
-  display: flex;
-  flex-wrap: wrap-reverse;
-  justify-content: space-between;
-  gap: 4px 16px;
-  margin-top: 6px;
-  font-size: 12px;
-}
-.legend { display: inline-flex; align-items: center; gap: 3px; margin-left: auto; }
-.sw { display: inline-block; width: 11px; height: 11px; border-radius: 2px; background: var(--heat-0); }
 
 /* ---------- list ---------- */
 .cat { margin-top: 20px; }
@@ -366,9 +304,6 @@ dialog {
 dialog::backdrop { background: rgba(255, 255, 255, 0.85); }
 dialog h2 { font-weight: bold; margin-bottom: 12px; }
 .dialog-actions { display: flex; flex-wrap: wrap; gap: 8px 12px; margin-top: 16px; }
-.keys { border-collapse: collapse; }
-.keys td { padding: 1px 16px 1px 0; vertical-align: baseline; }
-.keys td:first-child { white-space: nowrap; }
 
 @media (max-width: 520px) {
   .wrap { padding-top: 20px; }

@@ -15,8 +15,6 @@ const DIFFS = ['E', 'M', 'H']
 const GLYPH = { todo: '[ ]', attempted: '[~]', solved: '[x]' }
 const DIFF_NAME = { E: 'easy', M: 'medium', H: 'hard' }
 const TEXT_FIELDS = ['approach', 'code', 'time', 'space', 'notes']
-const FORM_FIELDS = ['status', 'lang', ...TEXT_FIELDS, 'solvedAt']
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 const REVIEW_AFTER_DAYS = 14
 const BACKUP_AFTER_DAYS = 7
 const AUTOSAVE_MS = 800
@@ -34,7 +32,7 @@ const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
 
 const pad = (n) => String(n).padStart(2, '0')
 
-export function localDay(date = new Date()) {
+function localDay(date = new Date()) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
 }
 
@@ -67,7 +65,7 @@ let state
 const notices = { corrupt: null, corruptDismissed: false, saveError: null, toast: null }
 
 function emptyState() {
-  return { version: VERSION, lastExportAt: null, roadmap: { startDate: null, dailyGoal: 1, skips: {} }, entries: {} }
+  return { version: VERSION, lastExportAt: null, roadmap: { startDate: null, dailyGoal: 1 }, entries: {} }
 }
 
 function normalizeEntry(raw) {
@@ -88,15 +86,10 @@ function normalizeEntry(raw) {
   }
 }
 
-// future versions get upgraded here, one step at a time
-function migrate(data) {
-  if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('not a journal object')
-  if (data.version === VERSION) return data
-  throw new Error(`unsupported version ${JSON.stringify(data.version)}`)
-}
-
 // validates shape and rebuilds the object with a fixed key order
 function normalizeState(data) {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('not a journal object')
+  if (data.version !== VERSION) throw new Error(`unsupported version ${JSON.stringify(data.version)}`)
   if (!data.entries || typeof data.entries !== 'object' || Array.isArray(data.entries)) throw new Error('missing entries')
   const entries = {}
   let unknown = 0
@@ -108,12 +101,6 @@ function normalizeState(data) {
     entries[id] = normalizeEntry(entry)
   }
   const rm = data.roadmap && typeof data.roadmap === 'object' ? data.roadmap : {}
-  const skips = {}
-  if (rm.skips && typeof rm.skips === 'object') {
-    for (const [day, ids] of Object.entries(rm.skips)) {
-      if (isDay(day) && Array.isArray(ids)) skips[day] = ids.filter((id) => INDEX.has(id))
-    }
-  }
   return {
     unknown,
     state: {
@@ -122,7 +109,6 @@ function normalizeState(data) {
       roadmap: {
         startDate: isDay(rm.startDate) ? rm.startDate : null,
         dailyGoal: Number.isInteger(rm.dailyGoal) && rm.dailyGoal > 0 ? rm.dailyGoal : 1,
-        skips,
       },
       entries,
     },
@@ -139,7 +125,7 @@ function load() {
   }
   if (raw === null) return emptyState()
   try {
-    return normalizeState(migrate(JSON.parse(raw))).state
+    return normalizeState(JSON.parse(raw)).state
   } catch {
     // keep the unreadable text, never overwrite it
     notices.corrupt = backupCorrupt(raw)
@@ -162,9 +148,6 @@ function backupCorrupt(raw) {
 }
 
 function save() {
-  // skips only matter for today
-  const today = localDay()
-  for (const day of Object.keys(state.roadmap.skips)) if (day !== today) delete state.roadmap.skips[day]
   try {
     localStorage.setItem(KEY, JSON.stringify(state))
     notices.saveError = null
@@ -230,7 +213,7 @@ const ui = {
 }
 const saveUi = () => writeJSON(localStorage, UI_KEY, ui)
 
-const DEFAULT_FILTERS = { q: '', status: 'all', diff: [], starred: false, due: false, solvedOn: null }
+const DEFAULT_FILTERS = { q: '', status: 'all', diff: [], starred: false, due: false }
 function loadFilters() {
   const f = readJSON(sessionStorage, FILTER_KEY)
   return {
@@ -239,7 +222,6 @@ function loadFilters() {
     diff: Array.isArray(f.diff) ? f.diff.filter((d) => DIFFS.includes(d)) : [],
     starred: f.starred === true,
     due: f.due === true,
-    solvedOn: isDay(f.solvedOn) ? f.solvedOn : null,
   }
 }
 let filters = loadFilters()
@@ -283,15 +265,7 @@ function streaks(act, today) {
     current++
     cursor = addDays(cursor, -1)
   }
-  let best = 0
-  let run = 0
-  let prev = null
-  for (const day of [...done].sort()) {
-    run = prev && daysBetween(prev, day) === 1 ? run + 1 : 1
-    best = Math.max(best, run)
-    prev = day
-  }
-  return { current, best, todayDone }
+  return { current, todayDone }
 }
 
 function lastTouched(e) {
@@ -310,11 +284,8 @@ function dueCount(today) {
   return PROBLEMS.filter((p) => isDue(state.entries[p.id], today)).length
 }
 
-// first unsolved problem in NeetCode order that wasn't skipped today
-function nextUnsolved(today) {
-  const skipped = new Set(state.roadmap.skips[today] ?? [])
-  return PROBLEMS.find((p) => statusOf(p.id) !== 'solved' && !skipped.has(p.id)) ?? null
-}
+// first unsolved problem in NeetCode order
+const nextUnsolved = () => PROBLEMS.find((p) => statusOf(p.id) !== 'solved') ?? null
 
 function matches(p, ctx) {
   const e = state.entries[p.id]
@@ -323,17 +294,13 @@ function matches(p, ctx) {
   if (filters.diff.length && !filters.diff.includes(p.difficulty)) return false
   if (filters.starred && !e?.starred) return false
   if (filters.due && !isDue(e, ctx.today)) return false
-  if (filters.solvedOn) {
-    const a = ctx.act.get(filters.solvedOn)
-    if (!a || !(a.solved.includes(p.id) || a.reviewed.includes(p.id))) return false
-  }
   const q = filters.q.trim().toLowerCase()
   if (q && !p.title.toLowerCase().includes(q) && !p.category.toLowerCase().includes(q)) return false
   return true
 }
 
 const isFiltering = () =>
-  !!(filters.q.trim() || filters.status !== 'all' || filters.diff.length || filters.starred || filters.due || filters.solvedOn)
+  !!(filters.q.trim() || filters.status !== 'all' || filters.diff.length || filters.starred || filters.due)
 
 // ---------------------------------------------------------------------------
 // view state
@@ -452,7 +419,6 @@ function renderList() {
           <button type="button" class="tog" data-action="random">random</button>
         </div>
       </div>
-      <div id="chips"></div>
       <p id="list-msg" class="gray" role="status"></p>
     </header>
     <section id="roadmap" class="roadmap" aria-label="roadmap"></section>
@@ -474,15 +440,12 @@ function syncControls(ctx) {
     b.setAttribute('aria-pressed', String(on))
   }
   $('#due-btn').textContent = `due (${dueCount(ctx.today)})`
-  $('#chips').innerHTML = filters.solvedOn
-    ? `<button type="button" class="chip" data-action="clear-solved-on" aria-label="remove filter: solved on ${filters.solvedOn}">solved on ${filters.solvedOn} ×</button>`
-    : ''
 }
 
 function renderLists() {
   const lists = $('#lists')
   if (!lists) return
-  const ctx = { today: localDay(), act: activity() }
+  const ctx = { today: localDay() }
   syncControls(ctx)
   const focusKey = lists.contains(document.activeElement) ? document.activeElement.dataset.key : null
   const shown = new Set(PROBLEMS.filter((p) => matches(p, ctx)).map((p) => p.id))
@@ -540,16 +503,7 @@ function renderRoadmap() {
   const today = localDay()
   renderedDay = today
   const act = activity()
-  const focusedDay = el.contains(document.activeElement) ? document.activeElement.dataset.day : null
-  el.innerHTML = todayHtml(today, act) + paceHtml(today, act) + heatmapHtml(today, act)
-  const scroller = el.querySelector('.heat-scroll')
-  scroller.scrollLeft = scroller.scrollWidth
-  const cell = focusedDay && el.querySelector(`.cell[data-day="${focusedDay}"]`)
-  if (cell) {
-    for (const c of el.querySelectorAll('.cell[tabindex="0"]')) c.tabIndex = -1
-    cell.tabIndex = 0
-    cell.focus({ preventScroll: true })
-  }
+  el.innerHTML = todayHtml(today, act) + paceHtml(today, act)
 }
 
 function todayHtml(today, act) {
@@ -559,30 +513,25 @@ function todayHtml(today, act) {
   if (solved === TOTAL) {
     body = `<span>all 150 done.</span> <button type="button" class="link" data-action="show-due">review something due →</button>`
   } else if (solvedToday.length) {
-    const next = nextUnsolved(today)
+    const next = nextUnsolved()
     const names = solvedToday.map((id) => `<a href="#/p/${id}">${esc(problem(id).title)}</a>`).join(', ')
     body = `<span>done ✓</span> <span>${names}</span>${next ? ` <a href="#/p/${next.id}/edit" class="gray">do another →</a>` : ''}`
   } else {
-    const next = nextUnsolved(today)
-    if (!next) {
-      body = `<span>everything left is skipped today.</span> <button type="button" class="link" data-action="unskip">unskip</button>`
-    } else {
-      body = `<span>#${INDEX.get(next.id) + 1}</span> <span>${esc(next.title)}</span> <span title="${DIFF_NAME[next.difficulty]}">${next.difficulty}</span> <span class="gray">${esc(next.category)}</span>
-        <a class="btn" href="#/p/${next.id}/edit">open</a> <button type="button" class="link" data-action="skip" data-id="${next.id}">skip</button>`
-    }
+    const next = nextUnsolved()
+    body = `<span>#${INDEX.get(next.id) + 1}</span> <span>${esc(next.title)}</span> <span title="${DIFF_NAME[next.difficulty]}">${next.difficulty}</span> <span class="gray">${esc(next.category)}</span>
+      <a class="btn" href="#/p/${next.id}/edit">open</a>`
   }
   return `<p class="today"><span class="rm-label">today</span> ${body}</p>`
 }
 
 function paceHtml(today, act) {
-  const { current: streak, best, todayDone } = streaks(act, today)
+  const { current: streak, todayDone } = streaks(act, today)
   const solved = solvedCount()
   const unsolved = TOTAL - solved
   const goal = state.roadmap.dailyGoal
   const parts = []
   const streakText = `streak ${plural(streak, 'day')}`
   parts.push(!todayDone && streak > 0 ? `<span class="gray">${streakText} · do today's to keep it</span>` : `<span>${streakText}</span>`)
-  parts.push(`<span>best ${best}</span>`)
   parts.push(`<span>${solved}/${TOTAL}</span>`)
   if (unsolved > 0) {
     // today counts as day 1 until it's done
@@ -599,75 +548,6 @@ function paceHtml(today, act) {
     ? `<label class="gray">start <input type="date" id="start-input" class="start-input" value="${start ?? ''}"></label> <button type="button" class="link gray" data-action="start-done">done</button>`
     : `<button type="button" class="link gray" data-action="set-start" title="${start ? `started ${start}` : 'no start date yet'}">set start</button>`
   return `<p class="pace">${parts.join('<span class="gray" aria-hidden="true">·</span>')} <span class="gray" aria-hidden="true">·</span> ${startControl}</p>`
-}
-
-function describeDay(day, a) {
-  if (!dayCount(a)) return `${day} · nothing solved`
-  const bits = []
-  if (a.solved.length) bits.push(`${a.solved.length} solved: ${a.solved.map((id) => problem(id).title).join(', ')}`)
-  if (a.reviewed.length) bits.push(`${a.reviewed.length} reviewed: ${a.reviewed.map((id) => problem(id).title).join(', ')}`)
-  return `${day} · ${bits.join(' · ')}`
-}
-
-function heatmapHtml(today, act) {
-  const lastSunday = addDays(today, -parseDay(today).getDay())
-  const first = addDays(lastSunday, -52 * 7)
-  let cells = ''
-  let months = ''
-  let total = 0
-  let active = 0
-  for (let w = 0; w < 53; w++) {
-    for (let d = 0; d < 7; d++) {
-      const day = addDays(first, w * 7 + d)
-      if (day > today) break
-      const a = act.get(day)
-      const n = dayCount(a)
-      if (n) {
-        total += n
-        active++
-      }
-      if (day.endsWith('-01') && w < 51) {
-        months += `<span class="hm-month" style="grid-column:${w + 2} / span 3">${MONTHS[parseDay(day).getMonth()]}</span>`
-      }
-      const level = Math.min(n, 4)
-      const isToday = day === today
-      const picked = filters.solvedOn === day ? ' picked' : ''
-      cells += `<button type="button" class="cell${picked}" data-day="${day}" data-level="${level}" style="grid-column:${w + 2};grid-row:${d + 2}" tabindex="${isToday ? 0 : -1}" aria-label="${esc(describeDay(day, a))}"${isToday ? ' aria-current="date"' : ''}></button>`
-    }
-  }
-  const dayLabels = [
-    ['Mon', 3],
-    ['Wed', 5],
-    ['Fri', 7],
-  ]
-    .map(([label, row]) => `<span class="hm-day" style="grid-row:${row}" aria-hidden="true">${label}</span>`)
-    .join('')
-  const legend = [0, 1, 2, 3, 4].map((l) => `<span class="sw" data-level="${l}"></span>`).join('')
-  return `<div class="heatmap">
-    <div class="heat-scroll"><div class="heat-grid" role="group" aria-label="problems solved per day, last 53 weeks. arrow keys move between days.">${months}${dayLabels}${cells}</div></div>
-    <div class="heat-tip" hidden></div>
-    <div class="heat-foot">
-      <span class="gray">${plural(total, 'problem')} in the last year · ${plural(active, 'active day')}</span>
-      <span class="legend gray" aria-hidden="true">less ${legend} more</span>
-    </div>
-  </div>`
-}
-
-function showTip(cell) {
-  const wrap = cell.closest('.heatmap')
-  const tip = wrap.querySelector('.heat-tip')
-  tip.textContent = cell.getAttribute('aria-label')
-  tip.hidden = false
-  const w = wrap.getBoundingClientRect()
-  const c = cell.getBoundingClientRect()
-  const left = Math.min(Math.max(0, c.left - w.left + c.width / 2 - tip.offsetWidth / 2), w.width - tip.offsetWidth)
-  tip.style.left = `${Math.max(0, left)}px`
-  tip.style.top = `${c.top - w.top - tip.offsetHeight - 4}px`
-}
-
-function hideTip(cell) {
-  const tip = cell.closest('.heatmap')?.querySelector('.heat-tip')
-  if (tip) tip.hidden = true
 }
 
 // ---------------------------------------------------------------------------
@@ -716,7 +596,7 @@ function readHtml(p) {
     </section>`)
   }
   if (e.notes) sections.push(`<section class="sec"><h2>NOTES</h2><div class="pre-text">${esc(e.notes)}</div></section>`)
-  if (!sections.length) sections.push(`<p class="sec gray">nothing written yet. press e to edit.</p>`)
+  if (!sections.length) sections.push(`<p class="sec gray">nothing written yet.</p>`)
 
   let reviews = ''
   if (e.status === 'solved') {
@@ -843,13 +723,6 @@ function flushEdit() {
   setSaveState(ok ? 'saved' : 'not saved')
 }
 
-function isDirty() {
-  if (!edit) return false
-  const base = edit.snapshot ?? normalizeEntry({})
-  const now = readForm()
-  return !!now && FORM_FIELDS.some((k) => (now[k] ?? null) !== (base[k] ?? null))
-}
-
 // end edit mode, keeping whatever was typed
 function closeEditState() {
   flushEdit()
@@ -877,16 +750,6 @@ function cancelEdit() {
   showRead(id)
 }
 
-function requestLeaveEdit() {
-  if (!isDirty()) return saveAndClose()
-  const box = $('#confirm')
-  box.innerHTML = `<span>you changed this entry.</span>
-    <button type="button" class="btn" data-action="leave-keep">keep changes</button>
-    <button type="button" class="btn" data-action="leave-discard">discard changes</button>
-    <button type="button" class="link" data-action="leave-stay">keep editing</button>`
-  box.querySelector('button').focus()
-}
-
 function askClear() {
   const box = $('#confirm')
   box.innerHTML = `<span>clear everything for this problem? this can't be undone.</span>
@@ -911,9 +774,8 @@ function onCodeKeydown(ev) {
   if (ev.key === 'Escape') {
     if (!ta.dataset.release) {
       ta.dataset.release = '1'
-      $('#tab-hint').textContent = 'tab moves focus now · esc again to leave edit mode'
+      $('#tab-hint').textContent = 'tab moves focus now'
       ev.preventDefault()
-      ev.stopPropagation()
     }
     return
   }
@@ -1002,12 +864,11 @@ function setFilter(patch) {
   if (current.name !== 'list') go('#/')
   else {
     renderLists()
-    renderRoadmap() // picked heatmap cell
   }
 }
 
 function randomProblem() {
-  const ctx = { today: localDay(), act: activity() }
+  const ctx = { today: localDay() }
   const pool = PROBLEMS.filter((p) => statusOf(p.id) !== 'solved' && matches(p, ctx))
   if (!pool.length) {
     const msg = isFiltering() ? 'nothing unsolved matches the current filters.' : 'nothing left unsolved.'
@@ -1018,36 +879,13 @@ function randomProblem() {
   go(`#/p/${pool[Math.floor(Math.random() * pool.length)].id}`)
 }
 
-function openToday() {
-  const next = nextUnsolved(localDay())
-  if (next) return go(`#/p/${next.id}/edit`)
-  if (solvedCount() === TOTAL) return setFilter({ ...DEFAULT_FILTERS, due: true })
-  toast('everything left is skipped today.')
-}
-
 function copyCode(button) {
   const code = getEntry(current.id).code
   const done = () => {
     button.textContent = 'copied'
     setTimeout(() => (button.textContent = 'copy'), 1500)
   }
-  if (navigator.clipboard?.writeText) navigator.clipboard.writeText(code).then(done, () => fallbackCopy(code, done))
-  else fallbackCopy(code, done)
-}
-
-function fallbackCopy(text, done) {
-  const ta = document.createElement('textarea')
-  ta.value = text
-  ta.style.position = 'fixed'
-  ta.style.opacity = '0'
-  document.body.append(ta)
-  ta.select()
-  try {
-    document.execCommand('copy')
-    done()
-  } finally {
-    ta.remove()
-  }
+  navigator.clipboard.writeText(code).then(done, () => toast("couldn't copy to the clipboard."))
 }
 
 // ---------------------------------------------------------------------------
@@ -1095,7 +933,7 @@ dialog.addEventListener('click', (ev) => {
 async function importFile(file) {
   let parsed
   try {
-    parsed = normalizeState(migrate(JSON.parse(await file.text())))
+    parsed = normalizeState(JSON.parse(await file.text()))
   } catch (err) {
     openDialog(
       `<h2 id="dialog-title">import</h2><p>that file isn't a journal export (${esc(err.message)}). nothing was changed.</p><div class="dialog-actions"><button type="button" class="btn" data-dialog="close">ok</button></div>`,
@@ -1142,36 +980,10 @@ function applyImport(incoming, choice) {
   route()
 }
 
-function showShortcuts() {
-  const rows = [
-    ['/', 'focus search'],
-    ['esc', 'clear search · leave edit mode · back to list'],
-    ['e', 'edit this problem'],
-    ['s', 'star / unstar this problem'],
-    ['j / k', 'next / previous problem'],
-    ['r', 'random unsolved problem'],
-    ['t', "open today's problem"],
-    ['ctrl/cmd+s', 'save (works while typing)'],
-    ['?', 'this list'],
-  ]
-  openDialog(
-    `<h2 id="dialog-title">shortcuts</h2>
-    <table class="keys"><tbody>${rows.map(([k, v]) => `<tr><td>${esc(k)}</td><td class="gray">${esc(v)}</td></tr>`).join('')}</tbody></table>
-    <p class="gray" style="margin-top:12px">in the code box, tab indents. press esc first to tab out.</p>
-    <div class="dialog-actions"><button type="button" class="btn" data-dialog="close">close</button></div>`,
-  )
-}
-
 // ---------------------------------------------------------------------------
 // events
 
 document.addEventListener('click', (ev) => {
-  const cell = ev.target.closest('.cell')
-  if (cell) {
-    const day = cell.dataset.day
-    if (cell.dataset.level !== '0') setFilter({ solvedOn: filters.solvedOn === day ? null : day })
-    return
-  }
   const t = ev.target.closest('[data-action], [data-filter]')
   if (!t || t.closest('dialog')) return
   const { filter, value } = t.dataset
@@ -1182,7 +994,6 @@ document.addEventListener('click', (ev) => {
   if (filter === 'starred' || filter === 'due') return setFilter({ [filter]: !filters[filter] })
 
   const id = t.dataset.id
-  const today = localDay()
   switch (t.dataset.action) {
     case 'star':
       return toggleStar(id)
@@ -1195,17 +1006,6 @@ document.addEventListener('click', (ev) => {
     }
     case 'random':
       return randomProblem()
-    case 'clear-solved-on':
-      return setFilter({ solvedOn: null })
-    case 'skip':
-      state.roadmap.skips[today] = [...(state.roadmap.skips[today] ?? []), id]
-      save()
-      renderRoadmap()
-      return $('#roadmap [data-action="skip"]')?.focus()
-    case 'unskip':
-      delete state.roadmap.skips[today]
-      save()
-      return renderRoadmap()
     case 'show-due':
       if ($('#search')) $('#search').value = ''
       return setFilter({ ...DEFAULT_FILTERS, due: true })
@@ -1234,19 +1034,12 @@ document.addEventListener('click', (ev) => {
     case 'clear-yes':
       return clearEntryNow()
     case 'clear-no':
-    case 'leave-stay':
       $('#confirm').innerHTML = ''
       return $('#edit-form [name="code"]')?.focus()
-    case 'leave-keep':
-      return saveAndClose()
-    case 'leave-discard':
-      return cancelEdit()
     case 'export':
       return exportJournal()
     case 'import':
       return $('#import-file').click()
-    case 'shortcuts':
-      return showShortcuts()
     case 'dismiss-corrupt':
       notices.corruptDismissed = true
       return renderBanners()
@@ -1280,121 +1073,6 @@ document.addEventListener('change', (ev) => {
   }
 })
 
-// heatmap tooltip + arrow keys between days
-document.addEventListener('mouseover', (ev) => {
-  const cell = ev.target.closest?.('.cell')
-  if (cell) showTip(cell)
-})
-document.addEventListener('mouseout', (ev) => {
-  const cell = ev.target.closest?.('.cell')
-  if (cell && document.activeElement !== cell) hideTip(cell)
-})
-document.addEventListener('focusin', (ev) => {
-  if (ev.target.classList?.contains('cell')) showTip(ev.target)
-})
-document.addEventListener('focusout', (ev) => {
-  if (ev.target.classList?.contains('cell')) hideTip(ev.target)
-})
-
-function moveCell(cell, key) {
-  const delta = { ArrowLeft: -7, ArrowRight: 7, ArrowUp: -1, ArrowDown: 1, Home: -10000, End: 10000 }[key]
-  if (delta === undefined) return false
-  const grid = cell.closest('.heat-grid')
-  const cells = [...grid.querySelectorAll('.cell')]
-  const i = cells.indexOf(cell)
-  const target = cells[Math.min(cells.length - 1, Math.max(0, i + delta))]
-  for (const c of cells) c.tabIndex = -1
-  target.tabIndex = 0
-  target.focus()
-  target.scrollIntoView({ block: 'nearest', inline: 'nearest' })
-  return true
-}
-
-function isTyping(el) {
-  if (!el || el === document.body) return false
-  if (el.isContentEditable || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT') return true
-  if (el.tagName === 'INPUT') return !['radio', 'checkbox', 'button', 'submit', 'reset', 'range'].includes(el.type)
-  return false
-}
-
-function onEscape(ev) {
-  const el = document.activeElement
-  if (el?.id === 'search') {
-    ev.preventDefault()
-    if (el.value) {
-      el.value = ''
-      filters = { ...filters, q: '' }
-      saveFilters()
-      renderLists()
-    } else el.blur()
-    return
-  }
-  if (el?.id === 'start-input') {
-    editingStart = false
-    renderRoadmap()
-    return
-  }
-  if (current.name !== 'problem') return
-  if (current.mode === 'edit') {
-    const confirm = $('#confirm')
-    if (confirm?.innerHTML.trim()) {
-      confirm.innerHTML = ''
-      return
-    }
-    ev.preventDefault()
-    return requestLeaveEdit()
-  }
-  go('#/')
-}
-
-document.addEventListener('keydown', (ev) => {
-  const key = ev.key
-  if ((ev.ctrlKey || ev.metaKey) && !ev.altKey && key.toLowerCase() === 's') {
-    ev.preventDefault()
-    if (edit) {
-      if (edit.timer === null) edit.timer = 0
-      flushEdit()
-      setSaveState('saved')
-      refreshAfterChange()
-    }
-    return
-  }
-  if (dialog.open) return
-  if (key === 'Escape') return onEscape(ev)
-  if (ev.target.classList?.contains('cell')) {
-    if (moveCell(ev.target, key)) return ev.preventDefault()
-  }
-  if (ev.ctrlKey || ev.metaKey || ev.altKey || isTyping(ev.target)) return
-
-  const inProblem = current.name === 'problem'
-  switch (key) {
-    case '/':
-      ev.preventDefault()
-      if (current.name !== 'list') go('#/')
-      return $('#search')?.focus()
-    case '?':
-      ev.preventDefault()
-      return showShortcuts()
-    case 'e':
-      if (inProblem && current.mode === 'read') go(`#/p/${current.id}/edit`)
-      return
-    case 's':
-      if (inProblem) toggleStar(current.id)
-      return
-    case 'j':
-    case 'k':
-      if (inProblem) {
-        const { prev, next } = neighbours(current.id)
-        go(`#/p/${(key === 'j' ? next : prev).id}`)
-      }
-      return
-    case 'r':
-      return randomProblem()
-    case 't':
-      return openToday()
-  }
-})
-
 // a new local day while the tab was in the background: recompute everything
 function checkDay() {
   if (localDay() === renderedDay) return
@@ -1412,7 +1090,6 @@ document.addEventListener('visibilitychange', () => {
 })
 window.addEventListener('focus', checkDay)
 window.addEventListener('pagehide', flushEdit)
-window.addEventListener('beforeunload', flushEdit)
 window.addEventListener('hashchange', route)
 
 // ---------------------------------------------------------------------------
